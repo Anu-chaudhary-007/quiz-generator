@@ -1,50 +1,106 @@
+ import streamlit as st
 import os
-import json
-import streamlit as st
+import re
+from hf import generate, HFError
 
-from core.prompt import build_quiz_prompt
-from providers import hf as hf_provider
-from providers import gemini as gemini_provider
+HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
+MODEL_ID = "tiiuae/falcon-7b-instruct"  # Change model if needed
 
-st.set_page_config(page_title="🧠 Quiz Generator (Step 1)", page_icon="🧠")
 
-st.title("🧠 Quiz Generator — Step 1: Setup & Test")
+# ------------------- FORMAT QUIZ ------------------- #
+def format_quiz(raw_text: str):
+    questions = []
+    parts = re.split(r"(?:Q\d+[:.-])", raw_text, flags=re.IGNORECASE)
 
-provider = st.secrets.get("PROVIDER", os.getenv("PROVIDER", "hf")).lower()
+    for part in parts:
+        if not part.strip():
+            continue
+        lines = [line.strip() for line in part.split("\n") if line.strip()]
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    topic = st.text_input("Topic", "Python basics")
-with col2:
-    difficulty = st.selectbox("Difficulty", ["easy", "medium", "hard"], index=0)
-with col3:
-    n = st.number_input("Number of questions", min_value=1, max_value=20, value=3, step=1)
+        if not lines:
+            continue
 
-st.caption(f"Using provider: **{provider.upper()}**")
+        question = lines[0]
+        options = [line for line in lines[1:] if re.match(r"^[A-Da-d][).]", line)]
+        answer = next((line for line in lines if "answer" in line.lower()), "Answer: Not provided")
 
-if st.button("Generate (smoke test)"):
-    prompt = build_quiz_prompt(topic, difficulty, n)
+        questions.append({
+            "question": question,
+            "options": options,
+            "answer": answer
+        })
+    return questions
+
+
+# ------------------- CREATE QUIZ ------------------- #
+def create_quiz(topic: str, num_questions: int = 5):
+    prompt = f"""
+    Generate {num_questions} multiple-choice quiz questions on the topic '{topic}'.
+    Each question must follow this format:
+    Q1: <question>
+    A) option 1
+    B) option 2
+    C) option 3
+    D) option 4
+    Answer: <correct option>
+    """
     try:
-        if provider == "hf":
-            token = st.secrets.get("HUGGINGFACE_API_TOKEN", os.getenv("HUGGINGFACE_API_TOKEN"))
-            model_id = st.secrets.get("HF_MODEL_ID", os.getenv("HF_MODEL_ID", "mistralai/Mixtral-8x7B-Instruct-v0.1"))
-            text = hf_provider.generate(prompt, token=token, model_id=model_id)
-        elif provider == "gemini":
-            api_key = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY"))
-            model_id = st.secrets.get("GEMINI_MODEL_ID", os.getenv("GEMINI_MODEL_ID", "gemini-1.5-flash"))
-            text = gemini_provider.generate(prompt, api_key=api_key, model_id=model_id)
+        raw_output = generate(prompt, HF_TOKEN, MODEL_ID)
+        return format_quiz(raw_output)
+    except HFError as e:
+        return [{"error": str(e)}]
+
+
+# ------------------- STREAMLIT UI ------------------- #
+st.set_page_config(page_title="Quiz Generator 🎯", page_icon="📘", layout="centered")
+
+st.title("📘 AI Quiz Generator")
+st.write("Enter a topic and generate an interactive quiz powered by Hugging Face!")
+
+topic = st.text_input("Enter topic", placeholder="e.g. Python, Databases, Cybersecurity")
+num_questions = st.slider("Number of questions", 2, 10, 5)
+
+if st.button("Generate Quiz"):
+    if not HF_TOKEN:
+        st.error("❌ Hugging Face API Token not found. Set it as an environment variable.")
+    else:
+        with st.spinner("⚡ Generating quiz..."):
+            quiz = create_quiz(topic, num_questions)
+
+        if quiz and "error" in quiz[0]:
+            st.error(f"Error: {quiz[0]['error']}")
         else:
-            st.error("Unknown provider. Set PROVIDER to 'hf' or 'gemini' in secrets.")
-            st.stop()
+            st.session_state.quiz = quiz
+            st.session_state.answers = {}
 
-        # Try parsing JSON (models may sometimes add junk; we’ll harden later)
-        try:
-            data = json.loads(text)
-            st.success("Received valid JSON ✅")
-            st.json(data)
-        except json.JSONDecodeError:
-            st.warning("Model did not return perfect JSON (expected at this step). Showing raw text:")
-            st.code(text)
-    except Exception as e:
-        st.error(f"Generation failed: {e}")
 
+# ------------------- QUIZ DISPLAY ------------------- #
+if "quiz" in st.session_state:
+    st.subheader("📝 Quiz Time!")
+
+    for idx, q in enumerate(st.session_state.quiz, 1):
+        st.markdown(f"**Q{idx}: {q['question']}**")
+
+        # Show radio options
+        choice = st.radio(
+            f"Select your answer for Q{idx}",
+            q["options"],
+            key=f"q{idx}"
+        )
+        st.session_state.answers[f"Q{idx}"] = choice
+
+    if st.button("Submit Quiz"):
+        score = 0
+        st.subheader("📊 Results")
+
+        for idx, q in enumerate(st.session_state.quiz, 1):
+            user_ans = st.session_state.answers.get(f"Q{idx}")
+            correct_ans = q["answer"]
+
+            if user_ans and user_ans[0].upper() in correct_ans.upper():
+                st.success(f"Q{idx}: ✅ Correct ({user_ans})")
+                score += 1
+            else:
+                st.error(f"Q{idx}: ❌ Wrong (Your: {user_ans} | {correct_ans})")
+
+        st.info(f"🏆 Final Score: {score}/{len(st.session_state.quiz)}")
