@@ -5,8 +5,7 @@ from providers.hf import generate, HFError
 
 # ------------------- CONFIG ------------------- #
 HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")  # from Streamlit secrets or env var
-MODEL_ID = "gpt2"  # Use "gpt2" for testing; try larger models if you have access
-
+MODEL_ID = "google/flan-t5-base"
 
 # ------------------- FORMAT QUIZ ------------------- #
 def format_quiz(raw_text: str):
