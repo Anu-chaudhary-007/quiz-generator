@@ -30,6 +30,19 @@ def generate(prompt: str, hf_token: str, model_id: str) -> str:
             json={"inputs": prompt},
             timeout=60,
         )
+        
+        # Check if the model is still loading
+        if response.status_code == 503:
+            # Extract estimated time if available
+            est_time = "unknown"
+            try:
+                data = response.json()
+                if "estimated_time" in data:
+                    est_time = f"{data['estimated_time']:.1f}"
+            except:
+                pass
+            raise HFError(f"Model is loading. Please try again in {est_time} seconds.")
+        
         response.raise_for_status()
         data = response.json()
 
@@ -37,11 +50,20 @@ def generate(prompt: str, hf_token: str, model_id: str) -> str:
         if isinstance(data, dict) and "error" in data:
             raise HFError(data["error"])
 
-        # Hugging Face text generation models usually return a list
-        if isinstance(data, list) and "generated_text" in data[0]:
-            return data[0]["generated_text"]
-
-        # Fallback
+        # Handle different response formats from different models
+        if isinstance(data, list):
+            # For text generation models like google/flan-t5-base
+            if len(data) > 0 and "generated_text" in data[0]:
+                return data[0]["generated_text"]
+            # For other models that might return a list of results
+            elif len(data) > 0 and isinstance(data[0], dict) and "label" in data[0]:
+                return str(data[0])
+        
+        # For models that return a dictionary directly
+        if isinstance(data, dict) and "generated_text" in data:
+            return data["generated_text"]
+            
+        # Fallback - return the raw data as string
         return str(data)
 
     except requests.exceptions.RequestException as e:
