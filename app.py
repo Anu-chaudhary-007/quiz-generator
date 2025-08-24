@@ -1,10 +1,11 @@
-import streamlit as st
+ import streamlit as st
 import os
 import re
 from providers.hf import generate, HFError
 
-HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
-MODEL_ID = "tiiuae/falcon-7b-instruct"  # Change model if needed
+# ------------------- CONFIG ------------------- #
+HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")  # from Streamlit secrets or env var
+MODEL_ID = "gpt2"  # Use "gpt2" for testing; try larger models if you have access
 
 
 # ------------------- FORMAT QUIZ ------------------- #
@@ -62,7 +63,7 @@ num_questions = st.slider("Number of questions", 2, 10, 5)
 
 if st.button("Generate Quiz"):
     if not HF_TOKEN:
-        st.error("❌ Hugging Face API Token not found. Set it as an environment variable.")
+        st.error("❌ Hugging Face API Token not found. Set it as an environment variable or in Streamlit secrets.")
     else:
         with st.spinner("⚡ Generating quiz..."):
             quiz = create_quiz(topic, num_questions)
@@ -104,3 +105,4 @@ if "quiz" in st.session_state:
                 st.error(f"Q{idx}: ❌ Wrong (Your: {user_ans} | {correct_ans})")
 
         st.info(f"🏆 Final Score: {score}/{len(st.session_state.quiz)}")
+
