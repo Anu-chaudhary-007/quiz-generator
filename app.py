@@ -7,7 +7,8 @@ from typing import List, Dict, Any
 
 # ------------------- CONFIG ------------------- #
 HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")  # from Streamlit secrets or env var
-MODEL_ID = "google/flan-t5-xl"  # Using a model that definitely works with inference API
+# Using a model that definitely works with the standard inference API
+MODEL_ID = "google/flan-t5-base"
 
 # ------------------- CUSTOM HF ERROR ------------------- #
 class HFError(Exception):
@@ -15,7 +16,7 @@ class HFError(Exception):
     pass
 
 # ------------------- HF GENERATE FUNCTION ------------------- #
-def generate(prompt: str, hf_token: str, model_id: str) -> str:
+def query_huggingface_api(prompt: str, hf_token: str, model_id: str) -> str:
     """
     Calls the Hugging Face Inference API with the given prompt.
     
@@ -119,10 +120,12 @@ def create_quiz(topic: str, num_questions: int = 5):
     C) [Option C]
     D) [Option D]
     Answer: [Correct letter]
+    
+    Make sure the questions are clear and the answers are correct.
     """
     
     try:
-        raw_output = generate(prompt, HF_TOKEN, MODEL_ID)
+        raw_output = query_huggingface_api(prompt, HF_TOKEN, MODEL_ID)
         quiz_data = format_quiz(raw_output)
         
         # If we got empty quiz data, raise an error
@@ -144,6 +147,7 @@ st.write("Enter a topic and generate an interactive quiz powered by Hugging Face
 if not HF_TOKEN:
     HF_TOKEN = st.text_input("Hugging Face API Token", type="password")
     st.info("Get your token from https://huggingface.co/settings/tokens")
+    st.info("Using model: google/flan-t5-base (verified to work with inference API)")
 
 topic = st.text_input("Enter topic", placeholder="e.g. Python, Databases, Cybersecurity")
 num_questions = st.slider("Number of questions", 2, 10, 5)
@@ -162,6 +166,7 @@ if st.button("Generate Quiz"):
                 st.success("✅ Quiz generated successfully!")
             except HFError as e:
                 st.error(f"❌ Failed to generate quiz: {str(e)}")
+                st.info("💡 Tip: Make sure your Hugging Face token is valid and has access to the model.")
 
 # ------------------- QUIZ DISPLAY ------------------- #
 if "quiz" in st.session_state:
