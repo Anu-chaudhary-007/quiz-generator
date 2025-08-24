@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import re
-from hf import generate, HFError
+from providers.hf import generate, HFError
 
 HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
 MODEL_ID = "tiiuae/falcon-7b-instruct"  # Change model if needed
