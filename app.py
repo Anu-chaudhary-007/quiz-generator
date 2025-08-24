@@ -2,74 +2,57 @@ import streamlit as st
 import os
 import re
 import json
-import requests
+import google.generativeai as genai
 from typing import List, Dict, Any
 
 # ------------------- CONFIG ------------------- #
-HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")  # from Streamlit secrets or env var
-# Using a model that definitely works with the standard inference API
-MODEL_ID = "google/flan-t5-base"
+GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")  # from Streamlit secrets or env var
 
-# ------------------- CUSTOM HF ERROR ------------------- #
-class HFError(Exception):
-    """Custom error class for Hugging Face API failures."""
+# ------------------- CUSTOM ERROR ------------------- #
+class AIError(Exception):
+    """Custom error class for AI API failures."""
     pass
 
-# ------------------- HF GENERATE FUNCTION ------------------- #
-def query_huggingface_api(prompt: str, hf_token: str, model_id: str) -> str:
+# ------------------- GEMINI GENERATE FUNCTION ------------------- #
+def generate_gemini_response(prompt: str, api_key: str, model_id: str = "gemini-1.5-flash", 
+                           max_output_tokens: int = 1024, temperature: float = 0.7) -> str:
     """
-    Calls the Hugging Face Inference API with the given prompt.
+    Calls the Gemini API with the given prompt.
     
     Args:
         prompt (str): The input text / instruction.
-        hf_token (str): Hugging Face API token (hf_xxx).
-        model_id (str): The Hugging Face model repo ID.
+        api_key (str): Google AI Studio API key.
+        model_id (str): The Gemini model to use.
+        max_output_tokens (int): Maximum tokens to generate.
+        temperature (float): Creativity of the response (0-1).
     
     Returns:
         str: The generated text from the model.
     
     Raises:
-        HFError: If the API call fails or Hugging Face returns an error.
+        AIError: If the API call fails or returns an error.
     """
-    url = f"https://api-inference.huggingface.co/models/{model_id}"
-    headers = {"Authorization": f"Bearer {hf_token}"}
-
+    if not api_key:
+        raise AIError("Missing GOOGLE_API_KEY.")
+    
     try:
-        response = requests.post(
-            url,
-            headers=headers,
-            json={"inputs": prompt},
-            timeout=120,
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_id)
+        response = model.generate_content(
+            prompt, 
+            generation_config=genai.types.GenerationConfig(
+                temperature=temperature,
+                max_output_tokens=max_output_tokens
+            )
         )
         
-        # Check if the model is still loading
-        if response.status_code == 503:
-            est_time = "unknown"
-            try:
-                data = response.json()
-                if "estimated_time" in data:
-                    est_time = f"{data['estimated_time']:.1f}"
-            except:
-                pass
-            raise HFError(f"Model is loading. Please try again in {est_time} seconds.")
+        if not response or not response.text:
+            raise AIError("Empty response from Gemini.")
+            
+        return response.text.strip()
         
-        response.raise_for_status()
-        data = response.json()
-
-        # Handle Hugging Face error message
-        if isinstance(data, dict) and "error" in data:
-            raise HFError(data["error"])
-
-        # Handle response format for text generation models
-        if isinstance(data, list) and len(data) > 0:
-            if "generated_text" in data[0]:
-                return data[0]["generated_text"]
-        
-        # Fallback - return the raw data as string
-        return str(data)
-
-    except requests.exceptions.RequestException as e:
-        raise HFError(f"Request failed: {e}")
+    except Exception as e:
+        raise AIError(f"Gemini API call failed: {str(e)}")
 
 # ------------------- QUIZ FORMATTING ------------------- #
 def format_quiz(raw_text: str):
@@ -125,36 +108,36 @@ def create_quiz(topic: str, num_questions: int = 5):
     """
     
     try:
-        raw_output = query_huggingface_api(prompt, HF_TOKEN, MODEL_ID)
+        raw_output = generate_gemini_response(prompt, GEMINI_API_KEY)
         quiz_data = format_quiz(raw_output)
         
         # If we got empty quiz data, raise an error
         if not quiz_data:
-            raise HFError("AI-generated quiz was empty or invalid.")
+            raise AIError("AI-generated quiz was empty or invalid.")
             
         return quiz_data[:num_questions]  # Ensure we return only the requested number
     
-    except HFError as e:
+    except AIError as e:
         raise e
 
 # ------------------- STREAMLIT UI ------------------- #
 st.set_page_config(page_title="Quiz Generator 🎯", page_icon="📘", layout="centered")
 
 st.title("📘 AI Quiz Generator")
-st.write("Enter a topic and generate an interactive quiz powered by Hugging Face!")
+st.write("Enter a topic and generate an interactive quiz powered by Google Gemini!")
 
-# Add token input field if not set in environment
-if not HF_TOKEN:
-    HF_TOKEN = st.text_input("Hugging Face API Token", type="password")
-    st.info("Get your token from https://huggingface.co/settings/tokens")
-    st.info("Using model: google/flan-t5-base (verified to work with inference API)")
+# Add API key input field if not set in environment
+if not GEMINI_API_KEY:
+    GEMINI_API_KEY = st.text_input("Google AI Studio API Key", type="password")
+    st.info("Get your API key from https://aistudio.google.com/app/apikey")
+    st.info("Using model: Gemini 1.5 Flash")
 
 topic = st.text_input("Enter topic", placeholder="e.g. Python, Databases, Cybersecurity")
 num_questions = st.slider("Number of questions", 2, 10, 5)
 
 if st.button("Generate Quiz"):
-    if not HF_TOKEN:
-        st.error("❌ Hugging Face API Token is required. Please enter your token above.")
+    if not GEMINI_API_KEY:
+        st.error("❌ Google API Key is required. Please enter your key above.")
     elif not topic.strip():
         st.error("❌ Please enter a topic for your quiz.")
     else:
@@ -164,9 +147,9 @@ if st.button("Generate Quiz"):
                 st.session_state.quiz = quiz
                 st.session_state.answers = {}
                 st.success("✅ Quiz generated successfully!")
-            except HFError as e:
+            except AIError as e:
                 st.error(f"❌ Failed to generate quiz: {str(e)}")
-                st.info("💡 Tip: Make sure your Hugging Face token is valid and has access to the model.")
+                st.info("💡 Tip: Make sure your Google API key is valid.")
 
 # ------------------- QUIZ DISPLAY ------------------- #
 if "quiz" in st.session_state:
