@@ -1,49 +1,48 @@
-import os
-import json
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
-
-HF_API_URL_TEMPLATE = "https://api-inference.huggingface.co/models/{model_id}"
 
 class HFError(Exception):
+    """Custom error class for Hugging Face API failures."""
     pass
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
-def generate(prompt: str, token: str, model_id: str, max_new_tokens: int = 256, temperature: float = 0.7) -> str:
-    if not token:
-        raise HFError("Missing HUGGINGFACE_API_TOKEN.")
 
-    url = HF_API_URL_TEMPLATE.format(model_id=model_id)
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": max_new_tokens,
-            "temperature": temperature,
-            "return_full_text": False
-        }
-    }
+def generate(prompt: str, hf_token: str, model_id: str) -> str:
+    """
+    Calls the Hugging Face Inference API with the given prompt.
 
-    r = requests.post(url, headers=headers, json=payload, timeout=90)
+    Args:
+        prompt (str): The input text / instruction.
+        hf_token (str): Hugging Face API token (hf_xxx).
+        model_id (str): The Hugging Face model repo ID.
 
-    if r.status_code == 503:
-        # Model cold-start on Inference API — raise to trigger retry
-        raise HFError("Model loading (503). Retrying...")
+    Returns:
+        str: The generated text from the model.
 
-    if not r.ok:
-        raise HFError(f"HF API error {r.status_code}: {r.text[:500]}")
+    Raises:
+        HFError: If the API call fails or Hugging Face returns an error.
+    """
+    url = f"https://api-inference.huggingface.co/models/{model_id}"
+    headers = {"Authorization": f"Bearer {hf_token}"}
 
-    data = r.json()
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            json={"inputs": prompt},
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()
 
-    # Responses can vary (list/dict). Try common shapes first.
-    if isinstance(data, list) and data and isinstance(data[0], dict) and "generated_text" in data[0]:
-        return data[0]["generated_text"].strip()
-    if isinstance(data, dict) and "generated_text" in data:
-        return data["generated_text"].strip()
+        # Handle Hugging Face error message
+        if isinstance(data, dict) and "error" in data:
+            raise HFError(data["error"])
 
-    # Fallback: return formatted error
-    raise HFError(f"Unexpected HF API response: {json.dumps(data, indent=2)}")
+        # Hugging Face text generation models usually return a list
+        if isinstance(data, list) and "generated_text" in data[0]:
+            return data[0]["generated_text"]
 
+        # Fallback
+        return str(data)
+
+    except requests.exceptions.RequestException as e:
+        raise HFError(f"Request failed: {e}")
