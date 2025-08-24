@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 
 # ------------------- CONFIG ------------------- #
 HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")  # from Streamlit secrets or env var
-MODEL_ID = "microsoft/DialoGPT-medium"  # Better model for quiz generation
+MODEL_ID = "google/flan-t5-xl"  # Using a model that definitely works with inference API
 
 # ------------------- CUSTOM HF ERROR ------------------- #
 class HFError(Exception):
@@ -38,7 +38,7 @@ def generate(prompt: str, hf_token: str, model_id: str) -> str:
             url,
             headers=headers,
             json={"inputs": prompt},
-            timeout=120,  # Increased timeout for larger models
+            timeout=120,
         )
         
         # Check if the model is still loading
@@ -59,19 +59,11 @@ def generate(prompt: str, hf_token: str, model_id: str) -> str:
         if isinstance(data, dict) and "error" in data:
             raise HFError(data["error"])
 
-        # Handle different response formats from different models
+        # Handle response format for text generation models
         if isinstance(data, list) and len(data) > 0:
-            # For text generation models
             if "generated_text" in data[0]:
                 return data[0]["generated_text"]
-            # For conversational models like DialoGPT
-            elif "conversation" in data[0]:
-                return data[0]["conversation"]["generated_responses"][0]
         
-        # For models that return a dictionary directly
-        if isinstance(data, dict) and "generated_text" in data:
-            return data["generated_text"]
-            
         # Fallback - return the raw data as string
         return str(data)
 
@@ -119,16 +111,14 @@ def format_quiz(raw_text: str):
 # ------------------- QUIZ CREATION ------------------- #
 def create_quiz(topic: str, num_questions: int = 5):
     prompt = f"""
-    Generate {num_questions} multiple-choice quiz questions on the topic '{topic}'.
-    Each question must follow this format:
-    Q1: <question>
-    A) option 1
-    B) option 2
-    C) option 3
-    D) option 4
-    Answer: <correct option letter>
-    
-    Make sure the questions are diverse and cover different aspects of {topic}.
+    Create {num_questions} multiple-choice quiz questions about {topic}.
+    Format each question exactly like this:
+    Q1: [Question text]
+    A) [Option A]
+    B) [Option B]
+    C) [Option C]
+    D) [Option D]
+    Answer: [Correct letter]
     """
     
     try:
